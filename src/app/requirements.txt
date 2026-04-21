@@ -1,0 +1,8 @@
+polars
+deltalake
+mlflow
+s3fs
+boto3
+scikit-learn
+matplotlib
+jupyterlab
