@@ -1,6 +1,6 @@
 import polars as pl
 from deltalake import DeltaTable
-from deltalake.writer import write_delta
+from deltalake import write_deltalake
 
 class LakehouseManager:
     def __init__(self, storage_options):
@@ -8,29 +8,13 @@ class LakehouseManager:
         self.__base_path = "s3://lakehouse"
 
     def run_bronze(self, csv_path: str):
-        full_df = pl.scan_csv(csv_path)
-        
-        years = (
-            full_df
-            .select("Year")
-            .unique()
-            .collect()
-            .get_column("Year")
-            .sort()
-            .to_list()
-        )
+        df = pl.read_csv(csv_path) 
+        years = df["Year"].unique().sort().to_list()
 
         for year in years:
             print(f"Processing year: {year}...")
-            
-            year_data = full_df.filter(pl.col("Year") == year).collect()
-            
-            write_delta(
-                f"{self.__base_path}/bronze",
-                year_data,
-                mode="append",
-                storage_options=self.__storage_options
-            )
+            year_data = df.filter(pl.col("Year") == year)
+            write_deltalake(f"{self.__base_path}/bronze", year_data, mode="append", storage_options=self.__storage_options)
 
     def run_silver(self):
         bronze_df = pl.scan_delta(f"{self.__base_path}/bronze", storage_options=self.__storage_options)
@@ -51,18 +35,17 @@ class LakehouseManager:
             ])
             
             .with_columns([
-                (pl.col("DepTime") // 100).alias("Hour"),
-                pl.col("Month").map_elements(
-                    lambda m: "Winter" if m in [12, 1, 2] else 
-                              "Spring" if m in [3, 4, 5] else 
-                              "Summer" if m in [6, 7, 8] else "Autumn",
-                    return_dtype=pl.Utf8
-                ).alias("Season"),
+                (pl.col("CRSDepTime") // 100).alias("Hour"),
+                pl.when(pl.col("Month").is_in([12, 1, 2])).then(pl.lit("Winter"))
+                  .when(pl.col("Month").is_in([3, 4, 5])).then(pl.lit("Spring"))
+                  .when(pl.col("Month").is_in([6, 7, 8])).then(pl.lit("Summer"))
+                  .otherwise(pl.lit("Autumn")).alias("Season"),
                 (pl.col("Origin") + "-" + pl.col("Dest")).alias("Route")
             ])
             .select([
                 "FlightDate", "Year", "Month", "Hour", "DayOfWeek", 
-                "Season", "Origin", "Dest", "Route", "Marketing_Airline_Network", "ArrDelay"
+                "Season", "Origin", "Dest", "Route", "Marketing_Airline_Network", "ArrDelay",
+                "Flight_Number_Marketing_Airline", "Distance"
             ])
         )
 
@@ -71,7 +54,13 @@ class LakehouseManager:
             (
                 dt.merge(
                     source=silver_df.collect(),
-                    predicate="target.FlightDate = source.FlightDate AND target.Route = source.Route",
+                    predicate="""
+                        target.FlightDate = source.FlightDate AND 
+                        target.Marketing_Airline_Network = source.Marketing_Airline_Network AND 
+                        target.Flight_Number_Marketing_Airline = source.Flight_Number_Marketing_Airline AND 
+                        target.Origin = source.Origin AND
+                        target.CRSDepTime = source.CRSDepTime
+                    """,
                     source_alias="source",
                     target_alias="target"
                 )
@@ -80,7 +69,7 @@ class LakehouseManager:
                 .execute()
             )
         except Exception:
-            write_delta(
+            write_deltalake(
                 f"{self.__base_path}/silver",
                 silver_df.collect(),
                 mode="append",
@@ -98,12 +87,12 @@ class LakehouseManager:
         )
         
         features_df = silver_df.select([
-            "Hour", "DayOfWeek", "Season", "Origin", "Dest", "ArrDelay"
+            "Hour", "DayOfWeek", "Season", "Origin", "Dest", "ArrDelay", "Distance"
         ])
         
-        write_delta(f"{self.__base_path}/gold_analytics", analytics_df.collect(), 
+        write_deltalake(f"{self.__base_path}/gold_analytics", analytics_df.collect(), 
                     mode="overwrite", storage_options=self.__storage_options)
-        write_delta(f"{self.__base_path}/gold_features", features_df.collect(), 
+        write_deltalake(f"{self.__base_path}/gold_features", features_df.collect(), 
                     mode="overwrite", storage_options=self.__storage_options)
 
     def maintenance(self):

@@ -1,4 +1,4 @@
-polars
+polars[rtcompat]
 deltalake
 mlflow
 s3fs
