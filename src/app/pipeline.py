@@ -26,7 +26,11 @@ class LakehouseManager:
                 (pl.col("Diverted") == 0) &
                 (pl.col("ArrDelay").is_between(-60, 1440)) 
             )
-            .drop_nulls(["ArrDelay", "DepTime", "Marketing_Airline_Network"])
+            .drop_nulls([
+                "FlightDate", "Year", "CRSDepTime", "Month", "DayOfWeek", "Origin", "Dest", 
+                "Marketing_Airline_Network", "ArrDelay",
+                "Flight_Number_Marketing_Airline", "Distance"
+            ])
             
             .with_columns([
                 pl.col("Origin").str.strip_chars().str.to_uppercase(),
@@ -88,7 +92,7 @@ class LakehouseManager:
         
         features_df = silver_df.select([
             "Hour", "DayOfWeek", "Season", "Origin", "Dest", "ArrDelay", "Distance"
-        ])
+        ]).drop_nulls()
         
         write_deltalake(f"{self.__base_path}/gold_analytics", analytics_df.collect(), 
                     mode="overwrite", storage_options=self.__storage_options)
