@@ -63,7 +63,7 @@ class LakehouseManager:
                         target.Marketing_Airline_Network = source.Marketing_Airline_Network AND 
                         target.Flight_Number_Marketing_Airline = source.Flight_Number_Marketing_Airline AND 
                         target.Origin = source.Origin AND
-                        target.CRSDepTime = source.CRSDepTime
+                        target.Hour = source.Hour
                     """,
                     source_alias="source",
                     target_alias="target"
